@@ -1,3 +1,5 @@
+#pragma once
+// Dugushiyu.11,2020  updata
 #include "ASICPv2.h"
 #include "nanoflann.hpp"
 
@@ -34,6 +36,7 @@ void ASICP::setParas(ASICPparas paras)
 	scale_maxz = paras.zscalemax;
 	ite_threshold = paras.itethreshold;
 	uniformity_flag=paras.uniformityflag;
+	estimate_flag = paras.estimateflag;
 }
 
 void ASICP::estimateScalesFromPoints(Eigen::MatrixXd &p, Eigen::MatrixXd &m,
@@ -153,7 +156,7 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 
 	// Householder reduction to bidiagonal form.
 	for (i = 0; i < n; i++) {
-		l = i + 1;
+		l = i + 2;
 		rv1(i) = scale * g;
 		g = s = scale = 0.0;
 
@@ -173,12 +176,15 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 
 				h = f * g - s;
 				a(i, i) = f - g;
-				for (j = l; j < n; j++) {
-					for (s = 0.0, k = i; k < m; k++) { 
-						s += a(k, i) * a(k, j); 
+				if (i!=n)
+				{
+					for (j = l-1; j < n; j++) {
+						for (s = 0.0, k = i; k < m; k++) { 
+							s += a(k, i) * a(k, j); 
+						}
+						f = s / h;
+						for (k = i; k < m; k++) a(k, j) += f * a(k, i);
 					}
-					f = s / h;
-					for (k = i; k < m; k++) a(k, j) += f * a(k, i);
 				}
 				for (k = i; k < m; k++) { 
 					a(k, i) *= scale;
@@ -189,30 +195,33 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 		w(i) = scale * g;
 		g = s = scale = 0.0;
 
-		if ((i < m) && (i != (n-1))) {
-			for (k = l; k < n; k++) {
+		if ((i+1 <= m) && (i + 1 != n)) {
+			for (k = l-1; k < n; k++) {
 				scale += fabs(a(i, k));
 			}
 			if (scale) {
-				for (k = l; k < n; k++) {
+				for (k = l-1; k < n; k++) {
 					a(i, k) /= scale;
 					s += a(i, k) * a(i, k);
 				}
 
-				f = a(i, l);
+				f = a(i, l-1);
 				g = -SIGN(sqrt(s), f);
 				h = f * g - s;
-				a(i, l) = f - g;
-				for (k = l; k < n; k++) rv1(k) = a(i, k) / h;
-				for (j = l; j < m; j++) {
-					for (s = 0.0, k = l; k < n; k++) {
-						s += a(j, k) * a(i, k);
-					}
-					for (k = l; k < n; k++) {
-						a(j, k) += s * rv1(k);
+				a(i, l-1) = f - g;
+				for (k = l-1; k < n; k++) rv1(k) = a(i, k) / h;
+				if (i != m)
+				{
+					for (j = l-1; j < m; j++) {
+						for (s = 0.0, k = l-1; k < n; k++) {
+							s += a(j, k) * a(i, k);
+						}
+						for (k = l-1; k < n; k++) {
+							a(j, k) += s * rv1(k);
+						}
 					}
 				}
-				for (k = l; k < n; k++) {
+				for (k = l-1; k < n; k++) {
 					a(i, k) *= scale;
 				}
 			}
@@ -222,26 +231,26 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 
 	// Accumulation of right-hand transformations
 	for (i = n-1; i >= 0; i--) {
-		if (i < n) {
+		if (i < n-1) {
 			if (g) {
 				for (j = l; j < n; j++) { // double division to avoid possible underflow
-					v(j, i) = (a(i, j) / a(i, l)) / g;
+					v(j , i) = (a(i , j) / a(i , l)) / g;
 				}
 
 				for (j = l; j < n; j++) {
 					for (s = 0.0, k = l; k < n; k++) {
-						s += a(i, k) * v(k, j);
+						s += a(i , k) * v(k , j);
 					}
 					for (k = l; k < n; k++) {
-						v(k, j) += s*v(k, i);
+						v(k , j) += s*v(k , i);
 					}
 				}
 			}
 			for (j = l; j < n; j++) {
-				v(i, j) = v(j, i) = 0.0;
+				v(i , j) = v(j , i) = 0.0;
 			}
 		}
-		v(i, i) = 1.0;
+		v(i , i) = 1.0;
 		g = rv1(i);
 		l = i;
 	}
@@ -250,24 +259,24 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 		// Accumulation of left-hand transformations
 		l = i + 1;
 		g = w(i);
-		for (j = l; j < n; j++) a(i, j) = 0.0;
+		for (j = l; j < n; j++) a(i,j) = 0.0;
 		if (g) {
 			g = 1.0 / g;
 			for (j = l; j < n; j++) {
 				for (s = 0.0, k = l; k < m; k++) {
-					s += a(k, i) * a(k, j);
+					s += a(k , i) * a(k , j);
 				}
-				f = (s / a(i, i)) * g;
+				f = (s / a(i , i)) * g;
 				for (k = i; k < m; k++) {
-					a(k, j) += f * a(k, i);
+					a(k , j) += f * a(k , i);
 				}
 			}
 			for (j = i; j < m; j++) {
-				a(j, i) *= g;
+				a(j , i) *= g;
 			}
 		}
 		else for (j = i; j < m; j++) {
-			a(j, i) = 0.0;
+			a(j , i) = 0.0;
 		}
 		++a(i, i);
 	}
@@ -285,13 +294,14 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 					flag = 0;
 					break;
 				}
-				if (fabs((double)(fabs(w(nm)) + anorm) - anorm)<1e-3) break;
+				if (nm>=0&&fabs((double)(fabs(w(nm)) + anorm) - anorm)<1e-3) break;
 			}
 
+			//l = l < 0 ? 0 : l;
 			if (flag) {
 				c = 0.0;
 				s = 1.0;
-				for (i = l; i <= k; i++) {
+				for (i = l; l>=0&& i <= k; i++) {
 					f = s*rv1(i);
 					rv1(i) = c * rv1(i);
 
@@ -304,11 +314,11 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 					c = g * h;
 					s = -f * h;
 
-					for (j = 0; j < m; j++) {
-						y = a(j, nm);
-						z = a(j, i);
-						a(j, nm) = y * c + z * s;
-						a(j, i) = z * c - y * s;
+					for (j = 0; nm>0&&j < m; j++) {
+						y = a(j , nm);
+						z = a(j , i);
+						a(j , nm) = y * c + z * s;
+						a(j , i) = z * c - y * s;
 					}
 				}
 			}
@@ -320,13 +330,13 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 				if (z < 0.0) {
 					w(k) = -z;
 					for (j = 0; j < n; j++) {
-						v(j, k) = -v(j, k);
+						v(j , k) = -v(j , k);
 					}
 				}
 				break;
 			}
 
-			assert(its != 30); // check this
+			assert(its != 29); // check this
 
 			x = w(l);
 			nm = k - 1;
@@ -353,11 +363,11 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 				g = g * c - x * s;
 				h = y * s;
 				y *= c;
-				for (jj = 0; jj < n; jj++) {
-					x = v(jj, j);
-					z = v(jj, i);
-					v(jj, j) = x * c + z * s;
-					v(jj, i) = z * c - x * s;
+				for (jj = 0; jj <  n; jj++) {
+					x = v(jj  , j);
+					z = v(jj  , i);
+					v(jj , j) = x * c + z * s;
+					v(jj , i) = z * c - x * s;
 				}
 				z = pythag(f, h);
 				w(j) = z;  // Rotation can be arbitrary if z = 0
@@ -370,10 +380,10 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 				x = c * y - s * g;
 
 				for (jj = 0; jj < m; jj++) {
-					y = a(jj, j);
-					z = a(jj, i);
-					a(jj, j) = y * c + z * s;
-					a(jj, i) = z * c - y * s;
+					y = a(jj , j);
+					z = a(jj , i);
+					a(jj , j) = y * c + z * s;
+					a(jj , i) = z * c - y * s;
 				}
 			}
 			rv1(l) = 0.0;
@@ -389,13 +399,12 @@ void ASICP::svdcmp(Eigen::MatrixXd &u, Eigen::Vector3d &w, Eigen::Matrix3d &a, E
 // q is a 4x40 quaterion matrix where each column of q is an unit quaternion
 void ASICP::FourtyRotations(Eigen::MatrixXd &q)
 {
-	Eigen::MatrixXd tempq(4, 54); // Matrix<double> tempq(4, 54);
+	Eigen::MatrixXd tempq(4, 54); 
 
-	Eigen::VectorXd q0(2); q0(0) = 1; q0(1) = 0;
+	Eigen::VectorXd q0(2); q0(0) = 1; q0(1) = 0.5;
 	Eigen::VectorXd q1(3); q1(0) = 1; q1(1) = 0; q1(2) = -1;
 	Eigen::VectorXd q2(3); q2(0) = 1; q2(1) = 0; q2(2) = -1;
 	Eigen::VectorXd q3(3); q3(0) = 1; q3(1) = 0; q3(2) = -1;
-
 	int counter = 0;
 	Eigen::MatrixXd  temp(4, 54);
 	double ll = 1.0;
@@ -541,15 +550,22 @@ void ASICP::ASMajor_point_register(Eigen::MatrixXd &XX, Eigen::MatrixXd &YY,
 		}
 	}
 
-	S(0) = S(0)<1e-9 ? 1 : sqrt(S(0));
-	S(1) = S(1)<1e-9 ? 1 : sqrt(S(1));
-	S(2) = S(2)<1e-9 ? 1 : sqrt(S(2));
+	//S(0) = S(0)<1e-9 ? 1 : sqrt(S(0));
+	//S(1) = S(1)<1e-9 ? 1 : sqrt(S(1));
+	//S(2) = S(2)<1e-9 ? 1 : sqrt(S(2));
 
 	for (int i = 0; i < X.rows(); i++)
 	{
 		for (int j = 0; j < X.cols(); j++)
 		{
-			Xtilde(i, j) /= S(j);
+			if (S(j)<1e-9)
+			{
+
+			}
+			else
+			{
+				Xtilde(i, j) /= S(j);
+			}
 		}
 	}
 
@@ -593,8 +609,7 @@ void ASICP::ASMajor_point_register(Eigen::MatrixXd &XX, Eigen::MatrixXd &YY,
 		I(2, 2) = QB(2, 2);
 
 		Eigen::MatrixXd temBI = B*I;
-
-		svdcmp(temBI, S, U, V);
+		svdcmp(temBI, S, U, V);	
 		UV = U * V;
 
 		dd(2, 2) = (UV).determinant();
@@ -633,6 +648,10 @@ void ASICP::ASMajor_point_register(Eigen::MatrixXd &XX, Eigen::MatrixXd &YY,
 	A(0, 0) = isnan(A(0, 0)) ? 1.0 : A(0, 0);
 	A(1, 1) = isnan(A(1, 1)) ? 1.0 : A(1, 1);
 	A(2, 2) = isnan(A(2, 2)) ? 1.0 : A(2, 2);
+
+	//A(0, 0) = A(0, 0) <0 ? fabs(A(0, 0)) : A(0, 0);
+	//A(1, 1) = A(1, 1) <0 ? fabs(A(1, 1)) : A(1, 1);
+	//A(2, 2) = A(2, 2) <0 ? fabs(A(2, 2)) : A(2, 2);
 
 	// now calculate the translation
 	t[0] = t[1] = t[2] = 0.0;
@@ -749,9 +768,9 @@ int ASICP::asicp_md(Eigen::MatrixXd &points,
 
 		Eigen::MatrixXd sqrtAA;
 		sqrtAA = AA;
-		sqrtAA(0, 0) = isnan(sqrt(AA(0, 0))) ? 1 : sqrt(AA(0, 0));
-		sqrtAA(1, 1) = isnan(sqrt(AA(1, 1))) ? 1 : sqrt(AA(1, 1));
-		sqrtAA(2, 2) = isnan(sqrt(AA(2, 2))) ? 1 : sqrt(AA(2, 2));
+		sqrtAA(0, 0) = isnan(sqrt(AA(0, 0))) ? 0 : sqrt(AA(0, 0));
+		sqrtAA(1, 1) = isnan(sqrt(AA(1, 1))) ? 0 : sqrt(AA(1, 1));
+		sqrtAA(2, 2) = isnan(sqrt(AA(2, 2))) ? 0 : sqrt(AA(2, 2));
 
 		  // copy all the model points into ANN structure
 		  // NOTE: since we are interested in Mahalabonis Distance,
@@ -760,6 +779,11 @@ int ASICP::asicp_md(Eigen::MatrixXd &points,
 		{
 			for (int j = 0; j < 3; j++)
 			{
+				if (sqrtAA(j, j)<1e-6)
+				{
+					data_ptsE(j, i) = model(j, i);
+					continue;
+				}
 				data_ptsE(j, i) = model(j, i) / sqrtAA(j, j);
 			} // j
 		} // i
@@ -777,9 +801,13 @@ int ASICP::asicp_md(Eigen::MatrixXd &points,
 			nanoflann::KNNResultSet<double> result_set(1);
 			result_set.init(&ret_index, &out_dist_sqr);
 			double query[3];
-			query[0] = l(0, i) / sqrtAA(0, 0);
-			query[1] = l(1, i) / sqrtAA(1, 1);
-			query[2] = l(2, i) / sqrtAA(2, 2);
+			sqrtAA(0, 0) = sqrtAA(0, 0) < 1e-5 ? 1 : sqrtAA(0, 0);
+			sqrtAA(1, 1) = sqrtAA(1, 1) < 1e-5 ? 1 : sqrtAA(1, 1);
+			sqrtAA(2, 2) = sqrtAA(2, 2) < 1e-5 ? 1 : sqrtAA(2, 2);
+
+			query[0] = l(0, i) < 1e-6 ? l(0, i) : l(0, i) / sqrtAA(0, 0);
+			query[1] = l(1, i) < 1e-6 ? l(1, i) : l(1, i) / sqrtAA(1, 1);
+			query[2] = l(2, i) < 1e-6 ? l(2, i) : l(2, i) / sqrtAA(2, 2);
 
 			// find closest points in the scaled Y points to the current transformed points of X
 			bool findflag = kd_tree.index->findNeighbors(result_set,
@@ -805,7 +833,7 @@ int ASICP::asicp_md(Eigen::MatrixXd &points,
 		  // using the solution by Dosse and Ten Berge
 		if (colnum>0)
 		{
-			data_ptsEClose.resize(3, colnum);
+			//data_ptsEClose.resize(3, colnum);
 			ASMajor_point_register(points, cloud_tgt,R, A, t,FRE, threshold, FREmag);
 			changedScales = false;
 		}
@@ -813,6 +841,9 @@ int ASICP::asicp_md(Eigen::MatrixXd &points,
 			changedScales = true;
 		}
 		std::cerr << "Scales: " << std::endl<<A<<std::endl;
+		//A(0, 0) = A(0, 0) <1e-5 ? 1 : A(0, 0);
+		//A(1, 1) = A(1, 1) <1e-5 ? 1 : A(1, 1);
+		//A(2, 2) = A(2, 2) <1e-5 ? 1 : A(2, 2);
 
 		// need to regularize scaling factors A here, and
 		// recompute FRE if necessary.

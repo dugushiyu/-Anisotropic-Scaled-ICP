@@ -1,43 +1,3 @@
-/*=========================================================================
-
-Program:   Robarts ICP
-Module:    $RCSfile: asicp_main.cpp,v $
-Creator:   Elvis C. S. Chen <chene@robarts.ca>
-Language:  C++
-Author:    $Author: Elvis Chen $
-Date:      $Date: 2014/03/04 12:49:30 $
-Version:   $Revision: 0.99 $
-
-==========================================================================
-
-This is an open-source copyright license based on BSD 2-Clause License,
-see http://opensource.org/licenses/BSD-2-Clause
-
-Copyright (c) 2013, Elvis Chia-Shin Chen
-All rights reserved.
-
-Redistribution and use in source and binary forms, with or without modification,
-are permitted provided that the following conditions are met:
-
-- Redistributions of source code must retain the above copyright notice,
-this list of conditions and the following disclaimer.
-- Redistributions in binary form must reproduce the above copyright notice,
-this list of conditions and the following disclaimer in the documentation and/or
-other materials provided with the distribution.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-"AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
-THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
-ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
-(INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES;
-LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND
-ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF
-THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-=========================================================================*/
-
 // C++ includes
 #include <iostream>
 #include <fstream>
@@ -52,7 +12,7 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <Eigen/Geometry>
 #include "ASICPv2.h"
 #include "ASICPv3.h"
-
+#include<opencv2\opencv.hpp>
 #define M_PI 3.1415926
 int main2(  )
   {
@@ -150,9 +110,8 @@ int main2(  )
 
 
   ///////////////////////////////////////////////////////////////
-  int mainASICP()
+  int main()
   {
-
 	  std::cerr << std::endl
 		  << "The Iterative Closest Point with Anisotropic Scaling (ASICP)" << std::endl
 		  << "using Mahalanobis Distance" << std::endl << std::endl;
@@ -166,14 +125,18 @@ int main2(  )
 	  S(0, 0) = 0.9;	S(1, 1) = 0.95;	S(2, 2) = 1;
 
 	  /////////////////////////////////////////////////////////////////////////
-	 
 	  Eigen::Vector3d l = Eigen::RowVector3d::Random(3) * 0;
 	  std::cout <<"r2"<<std::endl<< R2 << std::endl << "s"<<std::endl<<S << std::endl <<"L"<<std::endl<< l << std::endl;
 	  std::cerr << "============================================================================ " << std::endl;
 
 	  Eigen::MatrixXd XX = Eigen::MatrixXd::Random(3, 200) * 100;
+	  for (size_t i = 0; i < 200; i++)
+	  {
+		 XX(2, i) = 0;
+	  }
 	  Eigen::MatrixXd YY = (R2 * (S * XX)).colwise() + l;
-	  
+	  //std::cout << XX << std::endl << YY << std::endl;
+
 	  Matrix<double> models(3, nModels), points(3, nModels);
 	  Eigen::MatrixXd X(3, 200), Y(3, 200);
 	  for (int i = 0; i < nModels; i++)
@@ -191,60 +154,6 @@ int main2(  )
 		  }
 
 	  }
-	  /*
-	  // initial rotation
-	  double FRE = 0.0, tau = 1e-9;
-	  Matrix<double> A(3, 3, 0.0); // scaling
-	  Matrix<double> R(3, 3);      // rotation
-	  Vec<double> t(3);              // translation
-
-	  Matrix<double> initialQuaternions; // rotation group
-	  FourtyRotations(initialQuaternions); // fourty uniformally sampled rotations
-
-										   // loop through all the rotation group
-	  Vec<double> quat(4), minT(3);
-	  double minRMS = 0.0;
-	  Matrix<double> minA(3, 3), minR(3, 3);
-	  Vec<double> FREMag, minFREMag;
-
-	// go through the rotation group
-	for (int i = 0; i < initialQuaternions.num_cols(); i++)
-	{
-		// go through all the rotations
-		quat[0] = initialQuaternions[0][i];
-		quat[1] = initialQuaternions[1][i];
-		quat[2] = initialQuaternions[2][i];
-		quat[3] = initialQuaternions[3][i];
-		t[0] = t[1] = t[2] = 0.0;
-		q2m3x3(quat, R); // initial guess on rotation
-		A = eye(3, 1.0); // initial guess on scaling
-						// translation does not matter much
-
-		asicp_md(points, models, R, A, t, FRE, tau, FREMag);
-
-
-		//std::cerr << i << " FRE: " << minRMS << std::endl << R << A << t << std::endl;
-		if (i == 0)
-		{
-			minRMS = FRE;
-			minR = R;
-			minA = A;
-			minT = t;
-			minFREMag = FREMag;
-		}
-
-		if (FRE < minRMS)
-		{
-			minRMS = FRE;
-			minR = R;
-			minA = A;
-			minT = t;
-			minFREMag = FREMag;
-		}
-	}
-
-	  std::cerr <<std::endl<< "Final answer: " << minR << minA << minT << std::endl;
-	  */
 	  std::cerr << "============================================================================ " <<std::endl;
 	  
 	  Eigen::VectorXd quat3(4);
@@ -279,6 +188,7 @@ int main2(  )
 		  quat3[3] = initialQuaternions3(3, i);
 		  t3[0] = t3[1] = t3[2] = 0.0;
 		  asicpT.q2m3x3(quat3, R3); 
+		  //R3 = R2;
 		  A3 = Eigen::Matrix3d::Identity(); 
 		 // translation does not matter much
 		  asicpT.asicp_md(X, Y, R3, A3, t3, FRE3, threshold3, FREmag3);
@@ -298,6 +208,10 @@ int main2(  )
 			  minA3 = A3;
 			  minT3 = t3;
 			  minFREMag3 = FREmag3;
+			  if (minRMS3<1e-6)
+			  {
+				  break;
+			  }
 		  }
 	  }
 
@@ -311,7 +225,7 @@ int main2(  )
   }
 
   ///////////////////////////////////////////////////////////////
-  int main()
+  int main58()
   {
 
 	  std::cerr << std::endl
